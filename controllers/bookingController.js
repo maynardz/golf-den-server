@@ -1,4 +1,5 @@
 const Booking = require('../models/Booking'); // Import the Booking model
+const moment = require('moment');
 
 // Define operating hours
 const OPERATING_HOURS = {
@@ -81,22 +82,24 @@ const getAvailableSlots = async (req, res) => {
 const createBooking = async (req, res) => {
     const { date, time, duration, firstName, lastName, phone, email } = req.body;
     const io = req.app.get('socketio');
-    const formattedDate = formatDate(date);  // Ensure the date is formatted
+    const formattedDate = formatDate(date);  
+
+    const dayOfWeek = moment(formattedDate).format('dddd'); // Get day name
+
+    // Prevent bookings on Monday - Thursday
+    if (['Monday', 'Tuesday', 'Wednesday', 'Thursday'].includes(dayOfWeek)) {
+        return res.status(400).json({ message: 'Bookings are only allowed from Friday to Sunday.' });
+    }
 
     try {
-        // Check if the selected time slot is already booked
         const existingBooking = await Booking.findOne({
-            where: {
-                date: formattedDate,
-                time, // Ensure no booking exists for the same time
-            },
+            where: { date: formattedDate, time },
         });
 
         if (existingBooking) {
             return res.status(400).json({ message: 'Time slot already booked' });
         }
 
-        // Create a new booking
         const newBooking = await Booking.create({
             date: formattedDate,
             time,
@@ -105,13 +108,12 @@ const createBooking = async (req, res) => {
             lastName,
             phone,
             email,
-            waiverSigned: false, // Default to false until waiver is signed
+            waiverSigned: false,
         });
 
-        // Emit a socket event for real-time updates
         io.emit('bookingUpdated', newBooking);
-
         res.json({ message: 'Booking created successfully', booking: newBooking });
+
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });
